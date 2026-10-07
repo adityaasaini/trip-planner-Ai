@@ -2,6 +2,7 @@ package com.tripplanner.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tripplanner.client.SerpApiClient;
 import com.tripplanner.dto.ResolvedLocation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,14 +16,18 @@ import java.util.*;
 @Service
 public class LocationService {
 
+    private final SerpApiClient serpApiClient;
     private final RestClient nominatimClient;
     private final RestClient owmGeocodingClient;
     private final String owmApiKey;
     private final ObjectMapper objectMapper;
 
     public LocationService(
-            @Value("${api.openweathermap.api-key}") String owmApiKey) {
+            SerpApiClient serpApiClient,
+            @Value("${api.openweathermap.api-key:YOUR_OPENWEATHER_API_KEY}") String owmApiKey) {
         
+        this.serpApiClient = serpApiClient;
+
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(5000);
@@ -44,17 +49,31 @@ public class LocationService {
 
     /**
      * Searches for matching locations.
-     * Tries Nominatim first for detailed addresses, and falls back to OpenWeatherMap.
+     * Uses SerpApi as the primary search engine.
+     * Falls back to Nominatim / OpenWeatherMap if SerpApi yields no results.
      */
     public List<ResolvedLocation> searchLocations(String query) {
         if (query == null || query.trim().length() < 2) {
             return List.of();
         }
 
-        log.info("Searching location autocomplete for: '{}'", query);
+        log.info("Searching location autocomplete via SerpApi for: '{}'", query);
+        List<ResolvedLocation> results = serpApiClient.searchLocations(query);
+
+        // Fallback: If SerpApi returns empty (e.g. key placeholder unconfigured or empty results), try fallback geocoding
+        if (results.isEmpty()) {
+            log.info("SerpApi returned no results or key is placeholder. Attempting fallback geocoding for: '{}'", query);
+            results = fallbackSearchLocations(query);
+        }
+
+        log.info("Found {} autocomplete results for: '{}'", results.size(), query);
+        return results;
+    }
+
+    private List<ResolvedLocation> fallbackSearchLocations(String query) {
         List<ResolvedLocation> results = new ArrayList<>();
 
-        // 1. Try Nominatim
+        // 1. Try Nominatim fallback
         try {
             String response = nominatimClient.get()
                     .uri("/search?q={query}&format=json&addressdetails=1&limit=5&accept-language=en", query)
@@ -71,10 +90,10 @@ public class LocationService {
                 }
             }
         } catch (Exception e) {
-            log.warn("Nominatim autocomplete failed, falling back to OpenWeatherMap. Cause: {}", e.getMessage());
+            log.warn("Nominatim fallback failed: {}", e.getMessage());
         }
 
-        // 2. Fallback to OpenWeatherMap Geocoding if Nominatim failed or returned empty
+        // 2. Try OpenWeatherMap Geocoding fallback
         if (results.isEmpty()) {
             try {
                 String response = owmGeocodingClient.get()
@@ -96,7 +115,6 @@ public class LocationService {
             }
         }
 
-        log.info("Found {} autocomplete results for: '{}'", results.size(), query);
         return results;
     }
 
@@ -116,7 +134,6 @@ public class LocationService {
                           address.has("municipality") ? address.path("municipality").asText() :
                           address.has("suburb") ? address.path("suburb").asText() : "";
             
-            // If city is empty, check if we can get state or county
             if (city.isEmpty()) {
                 city = address.has("county") ? address.path("county").asText() : "";
             }
@@ -125,7 +142,6 @@ public class LocationService {
             String country = address.path("country").asText("");
             String countryCode = address.path("country_code").asText("").toLowerCase();
 
-            // Formulate a simple name (like "Jaipur" or "Paris")
             String name = city.isEmpty() ? address.path("name").asText(formattedAddress.split(",")[0]) : city;
 
             return ResolvedLocation.builder()

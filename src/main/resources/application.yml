@@ -78,6 +78,11 @@ async:
 #    Production: set them in Railway/Render/Vercel dashboard
 # ─────────────────────────────────────────────────────────────────
 api:
+  # SerpApi — Get key at https://serpapi.com
+  serpapi:
+    base-url: https://serpapi.com
+    api-key: ${SERPAPI_API_KEY:YOUR_API_KEY_HERE}
+
   # OpenWeatherMap — Get a free key at https://openweathermap.org/api
   openweathermap:
     base-url: https://api.openweathermap.org/data/2.5

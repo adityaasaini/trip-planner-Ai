@@ -10,6 +10,10 @@
 #  OR set env vars: OWM_API_KEY, GEMINI_API_KEY before running
 
 api:
+  serpapi:
+    api-key: YOUR_API_KEY_HERE
+    # Get API key at: https://serpapi.com
+
   openweathermap:
     api-key: YOUR_OPENWEATHERMAP_API_KEY_HERE
     # Free key: https://openweathermap.org/api → One Call API 3.0
